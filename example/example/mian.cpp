@@ -7,11 +7,18 @@
 
 
 
+
+
 using namespace cv;
 using namespace std;
 
 void read_img_idx3_from_file(string path, Mat& img);
 void read_lab_idx1_from_file(string path, Mat& label); 
+
+#define		KNN		1
+#define		LGR		2
+
+#define		METHOD		2
 
 
 
@@ -38,6 +45,11 @@ int main()
 	read_img_idx3_from_file(fileTestImgPath, test_images);
 	read_lab_idx1_from_file(fileTestLabPath, test_labels);
 
+	
+
+
+
+#if(METHOD == KNN)
 	/*************KNN Algorithm create *****************/
 	int k = 9;
 	Ptr<ml::KNearest> knn = ml::KNearest::create();
@@ -61,8 +73,11 @@ int main()
 
 	knn->findNearest(test_images(Range(0, 10), Range(0, test_images.size().width)), k, result);
 
+	Mat bresult(Size(1, 10), CV_8U);
 
-	//compare(result, test_images, bresult,0);
+	compare(result, test_labels(Range(0,10),Range(0,1)), bresult,0);
+
+	cout << "error num: " << countNonZero(bresult) << endl;;
 
 	for (int i = 0; i < 10; i++)
 	{
@@ -71,6 +86,121 @@ int main()
 
 	}
 
+
+	
+
+
+
+#elif(METHOD == LGR)
+
+	//logistical regression just for binery classification.
+	//step 1. create the data for training and testing.
+	Mat train_img_0(train_images.size(), CV_32F);
+	Mat train_lab_0(train_labels.size(), CV_32F);
+	Mat test_img_0(test_images.size(), CV_32F);
+	Mat test_lab_0(test_labels.size(), CV_32F);
+
+	//create the train dataset for training.
+	int num = train_images.rows;
+	int count = 0;
+
+	for (int i = 0; i < num; i++)
+	{
+		float val = train_labels.at<float>(i, 0);
+
+		//classify number 1 and 2, meanwhile to create the dataset.
+		if (val == 1.0 || val == 2.0)
+		{
+			train_labels.row(i).copyTo(train_lab_0.row(count));
+			train_images.row(i).copyTo(train_img_0.row(count++));
+
+		}
+
+	}
+
+	cout << train_lab_0.size()<< endl;
+
+	cout << "train size: " << train_img_0.size() << endl;
+
+	//create the test dataset for testing.
+	
+	num = test_images.rows;
+	count = 0;
+	for (int i = 0; i < num; i++)
+	{
+		float val = test_labels.at<float>(i, 0);
+
+		//classify number 1 and 2, meanwhile to create the dataset.
+		if (val == 1.0 || val == 2.0)
+		{
+			test_labels.row(i).copyTo(test_lab_0.row(count));
+			test_images.row(i).copyTo(test_img_0.row(count++));
+
+		}
+
+	}
+
+
+	//the above is dataset, the following is logistical model creation.
+	
+	Ptr<ml::LogisticRegression> LR = ml::LogisticRegression::create();
+
+	LR->setLearningRate(0.0001);
+	LR->setMiniBatchSize(30);
+	LR->setRegularization(ml::LogisticRegression::REG_L2);
+	LR->setTermCriteria(TermCriteria(1 | 2, 5000000, 0.0001));
+	LR->setTrainMethod(ml::LogisticRegression::MINI_BATCH);//MINI_BATCH
+
+
+	//above model is create OK!, now train-dataset.
+	Ptr<ml::TrainData> data = ml::TrainData::create(train_img_0(Range(0, 3000), Range(0, test_img_0.cols)), ml::ROW_SAMPLE, train_lab_0(Range(0, 3000), Range(0, 1)));
+
+
+	//train model
+	LR->train(data);
+
+
+	Mat theta = LR->get_learnt_thetas();
+	Mat input = train_img_0(Range(0, 3000), Range(0, test_img_0.cols));
+	Mat A(Size(input.cols + 1,input.rows), CV_32F);
+	
+
+
+	A = A.ones(A.size(),CV_32F);
+	input.copyTo(A(Range(0, input.rows), Range(0, input.cols)));
+	transpose(theta, theta);
+
+	Mat PInput = A*theta;
+
+	Mat rat;
+    exp(PInput, rat);
+
+	Mat rat_1 = rat + 1;
+	Mat r;
+	divide(rat, rat_1, r);
+
+	cout << "probality: " << r << endl;
+
+
+
+	//predict
+	Mat result,result_1;
+	LR->predict(test_img_0(Range(0, 200), Range(0, test_img_0.cols)), result);
+
+	cout << result.size() << endl;
+
+	result.convertTo(result, CV_32F);
+	//statistics
+	cv::compare(result, test_lab_0(Range(0, 200), Range(0, 1)), result_1, 0);
+
+	float ratio = countNonZero(result_1) / (200 * 1.0);
+
+	std::cout << "ratio: " << ratio << endl;
+
+
+
+
+#endif
 
 
 
